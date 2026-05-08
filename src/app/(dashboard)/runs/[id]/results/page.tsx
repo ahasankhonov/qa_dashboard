@@ -1,12 +1,13 @@
 'use client';
 
-import { useState, useEffect, useCallback, use, useMemo } from 'react';
+import { useState, useEffect, useCallback, use, useMemo, useRef } from 'react';
 import Link from 'next/link';
 import { ArrowLeft, RefreshCw, FlaskConical, Loader2, AlertCircle, Info } from 'lucide-react';
 import { TestResultsHeader } from '@/components/results/TestResultsHeader';
 import { ResultsFilter, type StatusFilter } from '@/components/results/ResultsFilter';
 import { TestSuiteTree } from '@/components/results/TestSuiteTree';
 import { Skeleton } from '@/components/ui/Skeleton';
+import { formatFileSize } from '@/utils/format';
 import type { NormalizedReport } from '@/types/playwright';
 
 interface PageProps {
@@ -14,6 +15,11 @@ interface PageProps {
 }
 
 type LoadState = 'loading' | 'in_progress' | 'no_artifact' | 'error' | 'ready';
+
+interface DownloadProgress {
+  loaded: number;
+  total: number;
+}
 
 export default function ResultsPage({ params }: PageProps) {
   const { id } = use(params);
@@ -25,33 +31,84 @@ export default function ResultsPage({ params }: PageProps) {
   const [artifactNames, setArtifactNames] = useState<string[]>([]);
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState<StatusFilter>('all');
+  const [downloadProgress, setDownloadProgress] = useState<DownloadProgress | null>(null);
   const [slowLoad, setSlowLoad] = useState(false);
+  const abortRef = useRef<AbortController | null>(null);
 
   const fetchResults = useCallback(async () => {
+    abortRef.current?.abort();
+    const controller = new AbortController();
+    abortRef.current = controller;
+
     setLoadState('loading');
+    setDownloadProgress(null);
     setSlowLoad(false);
+
     try {
-      const res = await fetch(`/api/runs/${runId}/playwright-results`);
-      const data = await res.json();
+      const res = await fetch(`/api/runs/${runId}/playwright-results/stream`, {
+        signal: controller.signal,
+      });
 
-      if (res.status === 202) {
-        setLoadState('in_progress');
-        return;
-      }
-      if (res.status === 404) {
-        setArtifactNames(data.artifacts ?? []);
-        setLoadState('no_artifact');
-        return;
-      }
-      if (!res.ok) {
-        setErrorMsg(data.error ?? 'Unknown error');
-        setLoadState('error');
-        return;
+      if (!res.ok || !res.body) {
+        throw new Error(`HTTP ${res.status}`);
       }
 
-      setReport(data as NormalizedReport);
-      setLoadState('ready');
+      const reader = res.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = '';
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+
+        buffer += decoder.decode(value, { stream: true });
+
+        let boundary = buffer.indexOf('\n\n');
+        while (boundary !== -1) {
+          const message = buffer.slice(0, boundary).trim();
+          buffer = buffer.slice(boundary + 2);
+
+          if (message.startsWith('data: ')) {
+            try {
+              const event = JSON.parse(message.slice(6)) as Record<string, unknown>;
+
+              if (event.type === 'start') {
+                setDownloadProgress({ loaded: 0, total: 0 });
+              } else if (event.type === 'progress') {
+                setDownloadProgress({
+                  loaded: event.loaded as number,
+                  total: event.total as number,
+                });
+              } else if (event.type === 'in_progress') {
+                setLoadState('in_progress');
+                reader.cancel();
+                return;
+              } else if (event.type === 'no_artifact') {
+                setArtifactNames((event.artifacts as string[]) ?? []);
+                setLoadState('no_artifact');
+                reader.cancel();
+                return;
+              } else if (event.type === 'done') {
+                setReport(event.report as NormalizedReport);
+                setLoadState('ready');
+                reader.cancel();
+                return;
+              } else if (event.type === 'error') {
+                setErrorMsg((event.message as string) ?? 'Unknown error');
+                setLoadState('error');
+                reader.cancel();
+                return;
+              }
+            } catch {
+              // ignore malformed SSE line
+            }
+          }
+
+          boundary = buffer.indexOf('\n\n');
+        }
+      }
     } catch (err) {
+      if (controller.signal.aborted) return;
       setErrorMsg(err instanceof Error ? err.message : 'Network error');
       setLoadState('error');
     }
@@ -59,6 +116,9 @@ export default function ResultsPage({ params }: PageProps) {
 
   useEffect(() => {
     fetchResults();
+    return () => {
+      abortRef.current?.abort();
+    };
   }, [fetchResults]);
 
   // Auto-poll while run is in progress
@@ -68,14 +128,14 @@ export default function ResultsPage({ params }: PageProps) {
     return () => clearTimeout(t);
   }, [loadState, fetchResults]);
 
-  // Show a hint after 2.5 s to explain the ZIP download delay
+  // Fallback hint after 2.5 s when no progress data yet (e.g. slow GitHub redirect)
   useEffect(() => {
     if (loadState !== 'loading') return;
     const t = setTimeout(() => setSlowLoad(true), 2500);
     return () => clearTimeout(t);
   }, [loadState]);
 
-  // ── Filtering ────────────────────────────────────────────────────────────
+  // ── Filtering ──────────────────────────────────────────────────────────────
   const filteredTests = useMemo(() => {
     if (!report) return [];
     return report.allTests.filter((t) => {
@@ -107,6 +167,12 @@ export default function ResultsPage({ params }: PageProps) {
       timedout: all.filter((t) => t.status === 'timedout').length,
     };
   }, [report]);
+
+  // ── Progress bar helpers ───────────────────────────────────────────────────
+  const progressPct =
+    downloadProgress && downloadProgress.total > 0
+      ? Math.min(100, Math.round((downloadProgress.loaded / downloadProgress.total) * 100))
+      : null;
 
   return (
     <div>
@@ -145,7 +211,7 @@ export default function ResultsPage({ params }: PageProps) {
         </div>
       </div>
 
-      {/* ── Loading ──────────────────────────────────────────────────────── */}
+      {/* ── Loading ────────────────────────────────────────────────────────── */}
       {loadState === 'loading' && (
         <div className="space-y-4">
           <Skeleton className="h-32 w-full rounded-xl" />
@@ -153,16 +219,46 @@ export default function ResultsPage({ params }: PageProps) {
           {Array.from({ length: 4 }).map((_, i) => (
             <Skeleton key={i} className="h-14 w-full rounded-xl" />
           ))}
-          {slowLoad && (
+
+          {downloadProgress ? (
+            <div className="pt-2 pl-1 space-y-2">
+              <div className="flex items-center justify-between text-xs text-zinc-400">
+                <span className="flex items-center gap-1.5">
+                  <Loader2 className="w-3.5 h-3.5 animate-spin flex-shrink-0" />
+                  Downloading artifact from GitHub…
+                </span>
+                {progressPct !== null && (
+                  <span className="tabular-nums font-medium text-indigo-400">
+                    {progressPct}%
+                  </span>
+                )}
+              </div>
+              <div className="w-full bg-zinc-800 rounded-full h-1.5 overflow-hidden">
+                {progressPct !== null ? (
+                  <div
+                    className="bg-indigo-500 h-full rounded-full transition-all duration-150 ease-out"
+                    style={{ width: `${progressPct}%` }}
+                  />
+                ) : (
+                  <div className="bg-indigo-500/60 h-full rounded-full w-1/3 animate-[slide_1.5s_ease-in-out_infinite]" />
+                )}
+              </div>
+              <p className="text-xs text-zinc-600">
+                {downloadProgress.total > 0
+                  ? `${formatFileSize(downloadProgress.loaded)} of ${formatFileSize(downloadProgress.total)} · cached after first load`
+                  : `${formatFileSize(downloadProgress.loaded)} downloaded · cached after first load`}
+              </p>
+            </div>
+          ) : slowLoad ? (
             <div className="flex items-center gap-2.5 text-xs text-zinc-500 pt-1 pl-1">
               <Loader2 className="w-3.5 h-3.5 animate-spin flex-shrink-0" />
               <span>Downloading artifact from GitHub — this only happens once, results are cached after.</span>
             </div>
-          )}
+          ) : null}
         </div>
       )}
 
-      {/* ── Run still in progress ────────────────────────────────────────── */}
+      {/* ── Run still in progress ──────────────────────────────────────────── */}
       {loadState === 'in_progress' && (
         <div className="flex flex-col items-center justify-center py-24 text-center gap-4">
           <div className="w-14 h-14 rounded-full bg-blue-500/10 border border-blue-500/20 flex items-center justify-center">
@@ -181,7 +277,7 @@ export default function ResultsPage({ params }: PageProps) {
         </div>
       )}
 
-      {/* ── No artifact found ────────────────────────────────────────────── */}
+      {/* ── No artifact found ──────────────────────────────────────────────── */}
       {loadState === 'no_artifact' && (
         <div className="max-w-2xl">
           <div className="bg-amber-500/10 border border-amber-500/20 rounded-xl p-6">
@@ -239,7 +335,7 @@ export default function ResultsPage({ params }: PageProps) {
         </div>
       )}
 
-      {/* ── Error ────────────────────────────────────────────────────────── */}
+      {/* ── Error ──────────────────────────────────────────────────────────── */}
       {loadState === 'error' && (
         <div className="bg-red-500/10 border border-red-500/20 rounded-xl p-5 flex items-start gap-3">
           <AlertCircle className="w-5 h-5 text-red-400 flex-shrink-0 mt-0.5" />
@@ -256,7 +352,7 @@ export default function ResultsPage({ params }: PageProps) {
         </div>
       )}
 
-      {/* ── Results ──────────────────────────────────────────────────────── */}
+      {/* ── Results ────────────────────────────────────────────────────────── */}
       {loadState === 'ready' && report && (
         <div className="space-y-5">
           {/* Stats header */}

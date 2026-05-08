@@ -7,7 +7,6 @@ import {
   FileText,
   Settings,
   GitBranch,
-  Activity,
   LogOut,
 } from 'lucide-react';
 import { cn } from '@/lib/cn';
@@ -29,11 +28,11 @@ export function Sidebar() {
       <div className="px-6 py-5 border-b border-zinc-800/60">
         <div className="flex items-center gap-3">
           <div className="w-8 h-8 rounded-lg bg-indigo-600 flex items-center justify-center">
-            <Activity className="w-4 h-4 text-white" />
+            <span className="text-white text-xs font-bold tracking-tight">QT</span>
           </div>
           <div>
             <p className="text-sm font-semibold text-zinc-100">QA Dashboard</p>
-            <p className="text-xs text-zinc-500">Playwright Automation</p>
+            <p className="text-xs text-zinc-500">QuichticketAI automation</p>
           </div>
         </div>
       </div>

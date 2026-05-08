@@ -60,7 +60,10 @@ function getAuthHeaders() {
   return { Authorization: `Bearer ${token}` };
 }
 
-async function downloadZip(archiveDownloadUrl: string): Promise<Record<string, Uint8Array>> {
+async function downloadZip(
+  archiveDownloadUrl: string,
+  onProgress?: (loaded: number, total: number) => void,
+): Promise<Record<string, Uint8Array>> {
   // Step 1 — ask GitHub for the redirect URL (manual redirect so we don't
   // forward the auth header to the S3 pre-signed URL)
   const probe = await fetch(archiveDownloadUrl, {
@@ -76,7 +79,32 @@ async function downloadZip(archiveDownloadUrl: string): Promise<Record<string, U
     if (!s3Url) throw new Error('GitHub returned redirect without Location header');
     const s3Res = await fetch(s3Url, { cache: 'no-store' });
     if (!s3Res.ok) throw new Error(`S3 download failed: ${s3Res.status}`);
-    buffer = await s3Res.arrayBuffer();
+
+    if (onProgress && s3Res.body) {
+      const contentLength = s3Res.headers.get('content-length');
+      const total = contentLength ? parseInt(contentLength, 10) : 0;
+      const reader = s3Res.body.getReader();
+      const chunks: Uint8Array[] = [];
+      let loaded = 0;
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        chunks.push(value);
+        loaded += value.byteLength;
+        onProgress(loaded, total);
+      }
+
+      const combined = new Uint8Array(loaded);
+      let offset = 0;
+      for (const chunk of chunks) {
+        combined.set(chunk, offset);
+        offset += chunk.byteLength;
+      }
+      buffer = combined.buffer;
+    } else {
+      buffer = await s3Res.arrayBuffer();
+    }
   } else if (probe.status === 200) {
     buffer = await probe.arrayBuffer();
   } else {
@@ -321,7 +349,7 @@ const ARTIFACT_NAME_PATTERNS = [
   /pw.?results?/i,
 ];
 
-function pickArtifact(artifacts: Artifact[]): Artifact | null {
+export function pickArtifact(artifacts: Artifact[]): Artifact | null {
   for (const pattern of ARTIFACT_NAME_PATTERNS) {
     const match = artifacts.find((a) => pattern.test(a.name));
     if (match && !match.expired) return match;
@@ -332,6 +360,7 @@ function pickArtifact(artifacts: Artifact[]): Artifact | null {
 export async function fetchPlaywrightResults(
   runId: number,
   artifacts: Artifact[],
+  onProgress?: (loaded: number, total: number) => void,
 ): Promise<NormalizedReport | null> {
   const cached = getCached(runId);
   if (cached) return cached.data;
@@ -339,7 +368,7 @@ export async function fetchPlaywrightResults(
   const artifact = pickArtifact(artifacts);
   if (!artifact) return null;
 
-  const zipFiles = await downloadZip(artifact.archive_download_url);
+  const zipFiles = await downloadZip(artifact.archive_download_url, onProgress);
   const reportKey = findReportEntry(zipFiles);
   if (!reportKey) return null;
 
