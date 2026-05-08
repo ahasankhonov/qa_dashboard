@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import type { WorkflowRun } from '@/types/github';
 
 interface UseWorkflowRunsOptions {
@@ -26,27 +26,38 @@ export function useWorkflowRuns({
   const [totalCount, setTotalCount] = useState(0);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const abortRef = useRef<AbortController | null>(null);
 
   const fetchRuns = useCallback(async () => {
+    // Cancel any in-flight request before starting a new one
+    abortRef.current?.abort();
+    const controller = new AbortController();
+    abortRef.current = controller;
+
+    setIsLoading(true);
     try {
       const params = new URLSearchParams({ per_page: String(perPage) });
       if (workflowId) params.set('workflow_id', workflowId);
-      const res = await fetch(`/api/runs?${params.toString()}`);
+      const res = await fetch(`/api/runs?${params.toString()}`, {
+        signal: controller.signal,
+      });
       if (!res.ok) throw new Error(`Failed to fetch runs: ${res.statusText}`);
       const data = await res.json();
-      setRuns(data.workflow_runs);
-      setTotalCount(data.total_count);
+      setRuns(data.workflow_runs ?? []);
+      setTotalCount(data.total_count ?? 0);
       setError(null);
     } catch (err) {
+      if ((err as Error).name === 'AbortError') return;
       setError(err instanceof Error ? err.message : 'Unknown error');
     } finally {
-      setIsLoading(false);
+      if (!controller.signal.aborted) setIsLoading(false);
     }
   }, [workflowId, perPage]);
 
+  // Initial fetch + re-fetch when dependencies change
   useEffect(() => {
-    setIsLoading(true);
     fetchRuns();
+    return () => { abortRef.current?.abort(); };
   }, [fetchRuns]);
 
   // Optional auto-refresh polling

@@ -155,8 +155,6 @@ function findFileInZip(
 
 // ─── Playwright JSON → NormalizedReport ──────────────────────────────────────
 
-let testCounter = 0;
-
 function pwStatusToNorm(test: PWTest, lastResult: PWResult): TestStatus {
   if (test.status === 'skipped') return 'skipped';
   if (test.status === 'flaky') return 'flaky';
@@ -169,6 +167,7 @@ function pwStatusToNorm(test: PWTest, lastResult: PWResult): TestStatus {
 interface EmbedContext {
   zipFiles: Record<string, Uint8Array>;
   totalBytes: { value: number };
+  idCounter: { value: number };
   maxTotalBytes: number;
   maxPerImage: number;
 }
@@ -229,7 +228,7 @@ function normaliseSpec(
     const error = lastResult?.error ?? lastResult?.errors?.[0];
 
     return {
-      id: `tc-${++testCounter}`,
+      id: `tc-${++embedCtx.idCounter.value}`,
       suitePath,
       title: spec.title,
       status,
@@ -276,12 +275,12 @@ function parsePWReport(
   runId: number,
   zipFiles: Record<string, Uint8Array>,
 ): NormalizedReport {
-  testCounter = 0;
   const embedCtx: EmbedContext = {
     zipFiles,
     totalBytes: { value: 0 },
-    maxTotalBytes: 10 * 1024 * 1024, // 10 MB total
-    maxPerImage: 800 * 1024,          // 800 KB per image
+    idCounter: { value: 0 },
+    maxTotalBytes: 10 * 1024 * 1024,
+    maxPerImage: 800 * 1024,
   };
 
   const suites = raw.suites.map((s) => normaliseSuite(s, [], zipFiles, embedCtx));

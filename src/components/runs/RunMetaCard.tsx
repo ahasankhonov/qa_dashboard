@@ -8,8 +8,7 @@ import {
 } from 'lucide-react';
 import type { WorkflowRun } from '@/types/github';
 import { StatusBadge } from '@/components/ui';
-import { formatDateTime, formatDuration, formatRelativeTime } from '@/utils/format';
-import { computeDuration } from '@/services/github';
+import { formatDateTime, formatDuration, formatRelativeTime, computeDuration } from '@/utils/format';
 
 interface RunMetaCardProps {
   run: WorkflowRun;

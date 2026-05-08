@@ -1,5 +1,12 @@
 import { formatDistanceToNow, format, parseISO } from 'date-fns';
 
+/** Compute duration in milliseconds between two ISO date strings. */
+export function computeDuration(startedAt: string | null, completedAt: string | null): number | null {
+  if (!startedAt || !completedAt) return null;
+  const diff = new Date(completedAt).getTime() - new Date(startedAt).getTime();
+  return diff > 0 ? diff : null;
+}
+
 export function formatRelativeTime(isoDate: string): string {
   return formatDistanceToNow(parseISO(isoDate), { addSuffix: true });
 }

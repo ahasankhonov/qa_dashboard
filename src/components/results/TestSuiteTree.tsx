@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useMemo } from 'react';
 import { ChevronDown, ChevronRight, FileCode2 } from 'lucide-react';
 import type { NormalizedSuite, NormalizedTestCase } from '@/types/playwright';
 import { TestCaseRow } from './TestCaseRow';
@@ -27,11 +27,11 @@ interface SuiteNodeProps {
 }
 
 function SuiteNode({ suite, runId, depth = 0, defaultOpen = true }: SuiteNodeProps) {
-  const stats = suiteStats(suite);
+  const stats = useMemo(() => suiteStats(suite), [suite]);
   const hasFailed = stats.failed > 0;
   const [open, setOpen] = useState(defaultOpen || hasFailed);
 
-  const allTests = collectTests(suite);
+  const allTests = useMemo(() => collectTests(suite), [suite]);
   if (allTests.length === 0) return null;
 
   return (
@@ -75,7 +75,7 @@ function SuiteNode({ suite, runId, depth = 0, defaultOpen = true }: SuiteNodePro
           {/* Nested suites */}
           {suite.children.map((child, i) => (
             <SuiteNode
-              key={i}
+              key={child.file || child.title || i}
               suite={child}
               runId={runId}
               depth={depth + 1}
@@ -117,7 +117,7 @@ export function TestSuiteTree({ suites, runId, filteredTests, isFiltered }: Test
   return (
     <div className="space-y-1">
       {suites.map((suite, i) => (
-        <SuiteNode key={i} suite={suite} runId={runId} depth={0} />
+        <SuiteNode key={suite.file || suite.title || i} suite={suite} runId={runId} depth={0} />
       ))}
     </div>
   );

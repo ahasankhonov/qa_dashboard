@@ -44,11 +44,10 @@ export function PassRateBadge({
     }
 
     // Cache-only check — never triggers a ZIP download from the list view
-    let cancelled = false;
-    fetch(`/api/runs/${runId}/pass-rate`)
+    const controller = new AbortController();
+    fetch(`/api/runs/${runId}/pass-rate`, { signal: controller.signal })
       .then(async (res) => {
-        if (cancelled) return;
-        if (res.status === 204) { setLoadState('none'); return; } // cache cold
+        if (res.status === 204) { setLoadState('none'); return; }
         if (!res.ok) { setLoadState('none'); return; }
         const data = await res.json();
         if (typeof data.passRate === 'number') {
@@ -58,9 +57,11 @@ export function PassRateBadge({
           setLoadState('none');
         }
       })
-      .catch(() => { if (!cancelled) setLoadState('none'); });
+      .catch((err) => {
+        if ((err as Error).name !== 'AbortError') setLoadState('none');
+      });
 
-    return () => { cancelled = true; };
+    return () => controller.abort();
   }, [runId, status, conclusion]);
 
   const sizeClass = size === 'sm' ? 'px-2 py-0.5 text-xs' : 'px-2.5 py-1 text-xs';

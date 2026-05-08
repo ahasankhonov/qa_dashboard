@@ -47,11 +47,30 @@ async function githubFetch<T>(path: string, options?: RequestInit): Promise<T> {
       ...getHeaders(),
       ...(options?.headers || {}),
     },
-    // Disable Next.js cache so we always get fresh data
     cache: 'no-store',
   });
 
   if (!res.ok) {
+    // Surface meaningful errors for common failure modes
+    if (res.status === 401) {
+      throw new Error('GitHub token is invalid or expired. Check your GITHUB_TOKEN environment variable.');
+    }
+    if (res.status === 403) {
+      const remaining = res.headers.get('X-RateLimit-Remaining');
+      const reset = res.headers.get('X-RateLimit-Reset');
+      if (remaining === '0' && reset) {
+        const resetTime = new Date(Number(reset) * 1000).toLocaleTimeString();
+        throw new Error(`GitHub API rate limit exceeded. Resets at ${resetTime}.`);
+      }
+      throw new Error('GitHub API access forbidden. Verify your token has the required scopes (repo, actions:read).');
+    }
+    if (res.status === 404) {
+      throw new Error('Repository or resource not found. Check your GITHUB_OWNER and GITHUB_REPO settings.');
+    }
+    if (res.status === 422) {
+      const body = await res.json().catch(() => ({})) as { message?: string };
+      throw new Error(`GitHub API validation error: ${body.message ?? 'invalid request'}`);
+    }
     const body = await res.text();
     throw new Error(`GitHub API error ${res.status}: ${body}`);
   }
@@ -129,10 +148,3 @@ export async function listArtifactsForRun(runId: number): Promise<ArtifactsRespo
   );
 }
 
-// ─── Helpers ──────────────────────────────────────────────────────────────────
-
-/** Compute duration in milliseconds between two ISO date strings. */
-export function computeDuration(startedAt: string, completedAt: string | null): number | null {
-  if (!completedAt) return null;
-  return new Date(completedAt).getTime() - new Date(startedAt).getTime();
-}

@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect } from 'react';
+import { useEffect, useCallback } from 'react';
 import { X, ZoomIn } from 'lucide-react';
 import { cn } from '@/lib/cn';
 
@@ -13,16 +13,30 @@ interface ScreenshotModalProps {
 export function ScreenshotModal({ src, alt = 'Screenshot', onClose }: ScreenshotModalProps) {
   useEffect(() => {
     if (!src) return;
-    const handler = (e: KeyboardEvent) => e.key === 'Escape' && onClose();
+
+    // Lock body scroll while modal is open
+    const prev = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+
+    const handler = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') onClose();
+    };
     window.addEventListener('keydown', handler);
-    return () => window.removeEventListener('keydown', handler);
+
+    return () => {
+      document.body.style.overflow = prev;
+      window.removeEventListener('keydown', handler);
+    };
   }, [src, onClose]);
 
   if (!src) return null;
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm p-4"
+      role="dialog"
+      aria-modal="true"
+      aria-label={alt}
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/85 backdrop-blur-sm p-4"
       onClick={onClose}
     >
       <div
@@ -31,16 +45,17 @@ export function ScreenshotModal({ src, alt = 'Screenshot', onClose }: Screenshot
       >
         {/* Header */}
         <div className="flex items-center justify-between px-4 py-3 border-b border-zinc-800">
-          <p className="text-sm text-zinc-400 font-medium truncate">{alt}</p>
+          <p className="text-sm text-zinc-400 font-medium truncate pr-4">{alt}</p>
           <button
             onClick={onClose}
-            className="text-zinc-500 hover:text-zinc-200 transition-colors p-1 rounded-lg hover:bg-zinc-800"
+            aria-label="Close screenshot"
+            className="flex-shrink-0 text-zinc-500 hover:text-zinc-200 transition-colors p-1 rounded-lg hover:bg-zinc-800"
           >
             <X className="w-4 h-4" />
           </button>
         </div>
         {/* Image */}
-        <div className="overflow-auto max-h-[80vh] flex items-center justify-center bg-zinc-950 p-2">
+        <div className="overflow-auto max-h-[calc(90vh-3rem)] flex items-center justify-center bg-zinc-950 p-2">
           <img
             src={src}
             alt={alt}
@@ -59,11 +74,20 @@ interface ScreenshotThumbProps {
   onClick: (src: string) => void;
 }
 
-export function ScreenshotThumb({ base64, contentType = 'image/png', label, onClick }: ScreenshotThumbProps) {
+export function ScreenshotThumb({
+  base64,
+  contentType = 'image/png',
+  label,
+  onClick,
+}: ScreenshotThumbProps) {
   const src = `data:${contentType};base64,${base64}`;
+
+  const handleClick = useCallback(() => onClick(src), [onClick, src]);
+
   return (
     <button
-      onClick={() => onClick(src)}
+      onClick={handleClick}
+      aria-label={label ? `View screenshot: ${label}` : 'View screenshot'}
       className={cn(
         'relative group rounded-lg overflow-hidden border border-zinc-700 hover:border-indigo-500 transition-all',
         'bg-zinc-800 flex-shrink-0',

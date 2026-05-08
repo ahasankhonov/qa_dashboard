@@ -4,8 +4,7 @@ import Link from 'next/link';
 import { ExternalLink, ArrowRight, FlaskConical } from 'lucide-react';
 import type { WorkflowRun } from '@/types/github';
 import { StatusBadge } from '@/components/ui';
-import { formatRelativeTime, formatDuration } from '@/utils/format';
-import { computeDuration } from '@/services/github';
+import { formatRelativeTime, formatDuration, computeDuration } from '@/utils/format';
 import { TableRowSkeleton } from '@/components/ui/Skeleton';
 
 interface WorkflowTableProps {

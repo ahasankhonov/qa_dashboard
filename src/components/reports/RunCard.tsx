@@ -4,8 +4,7 @@ import Link from 'next/link';
 import { ExternalLink, Clock, GitBranch, Package, ChevronRight, FlaskConical } from 'lucide-react';
 import type { WorkflowRun } from '@/types/github';
 import { StatusBadge } from '@/components/ui';
-import { formatRelativeTime, formatDuration, formatDateTime } from '@/utils/format';
-import { computeDuration } from '@/services/github';
+import { formatRelativeTime, formatDuration, formatDateTime, computeDuration } from '@/utils/format';
 
 interface RunCardProps {
   run: WorkflowRun;

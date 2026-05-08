@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useCallback } from 'react';
 import { Terminal, Image as ImageIcon, Film, Archive, ExternalLink } from 'lucide-react';
 import type { NormalizedTestCase, NormalizedAttachment } from '@/types/playwright';
 import { ScreenshotThumb, ScreenshotModal } from './ScreenshotModal';
@@ -67,6 +67,7 @@ function AttachmentRow({
 
 export function FailureDetails({ test, runId }: FailureDetailsProps) {
   const [modalSrc, setModalSrc] = useState<string | null>(null);
+  const closeModal = useCallback(() => setModalSrc(null), []);
 
   const screenshots = test.attachments.filter(
     (a) => a.contentType.startsWith('image/') && a.base64,
@@ -115,7 +116,7 @@ export function FailureDetails({ test, runId }: FailureDetailsProps) {
           <div className="flex flex-wrap gap-2">
             {screenshots.map((att, i) => (
               <ScreenshotThumb
-                key={i}
+                key={`${att.name}-${i}`}
                 base64={att.base64!}
                 contentType={att.contentType}
                 label={att.name}
@@ -133,7 +134,7 @@ export function FailureDetails({ test, runId }: FailureDetailsProps) {
           <div className="space-y-1.5">
             {otherAttachments.map((att, i) => (
               <AttachmentRow
-                key={i}
+                key={`${att.name}-${i}`}
                 attachment={att}
                 runId={runId}
                 onScreenshotClick={setModalSrc}
@@ -146,7 +147,7 @@ export function FailureDetails({ test, runId }: FailureDetailsProps) {
       <ScreenshotModal
         src={modalSrc}
         alt="Test failure screenshot"
-        onClose={() => setModalSrc(null)}
+        onClose={closeModal}
       />
     </div>
   );

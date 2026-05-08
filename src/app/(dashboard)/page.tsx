@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useEffect } from 'react';
 import {
   TrendingUp,
   TrendingDown,
@@ -53,9 +53,19 @@ export default function DashboardPage() {
     pollingInterval: 30_000,
   });
 
-  const { isPolling } = usePollRun(pollingRunId, 5_000);
+  const { run: polledRun, isPolling } = usePollRun(pollingRunId, 5_000);
 
-  const hasActiveRun = runs.some((r) => r.status !== 'completed');
+  // Clear pollingRunId once the triggered run finishes
+  useEffect(() => {
+    if (polledRun?.status === 'completed') {
+      setPollingRunId(null);
+      refresh();
+    }
+  }, [polledRun?.status, refresh]);
+
+  const hasActiveRun = runs.some(
+    (r) => r.status === 'in_progress' || r.status === 'queued' || r.status === 'waiting',
+  );
 
   const handleTriggered = useCallback(
     (runId?: number) => {

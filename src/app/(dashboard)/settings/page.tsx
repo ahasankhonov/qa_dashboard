@@ -113,18 +113,17 @@ export default function SettingsPage() {
     setConnectionStatus('idle');
     try {
       const res = await fetch('/api/workflows');
+      const data = await res.json().catch(() => ({})) as { total_count?: number; error?: string };
       if (res.ok) {
-        const data = await res.json();
         setConnectionStatus('ok');
-        toast.success(`Connected! Found ${data.total_count} workflow(s).`);
+        toast.success(`Connected! Found ${data.total_count ?? 0} workflow(s).`);
       } else {
-        const err = await res.json();
         setConnectionStatus('error');
-        toast.error(`Connection failed: ${err.error || res.statusText}`);
+        toast.error(`Connection failed: ${data.error ?? res.statusText}`);
       }
     } catch (err) {
       setConnectionStatus('error');
-      toast.error('Connection failed — check console for details');
+      toast.error(err instanceof Error ? err.message : 'Connection failed — check your settings.');
     } finally {
       setIsTestingConnection(false);
     }
