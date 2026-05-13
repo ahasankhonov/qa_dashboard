@@ -267,7 +267,7 @@ export default function DashboardPage() {
                 </p>
               </div>
             ) : (
-              <WorkflowTable runs={flutterRuns} isLoading={flutterLoading} />
+              <WorkflowTable runs={flutterRuns} isLoading={flutterLoading} basePath="/flutter/runs" />
             )}
 
             {/* Flutter last run summary */}

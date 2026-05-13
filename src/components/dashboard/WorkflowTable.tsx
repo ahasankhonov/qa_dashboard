@@ -10,9 +10,10 @@ import { TableRowSkeleton } from '@/components/ui/Skeleton';
 interface WorkflowTableProps {
   runs: WorkflowRun[];
   isLoading?: boolean;
+  basePath?: string;
 }
 
-export function WorkflowTable({ runs, isLoading }: WorkflowTableProps) {
+export function WorkflowTable({ runs, isLoading, basePath = '/runs' }: WorkflowTableProps) {
   return (
     <div className="overflow-x-auto">
       <table className="w-full text-sm">
@@ -53,7 +54,7 @@ export function WorkflowTable({ runs, isLoading }: WorkflowTableProps) {
                   <td className="px-4 py-3">
                     <div>
                       <Link
-                        href={`/runs/${run.id}`}
+                        href={`${basePath}/${run.id}`}
                         className="text-zinc-200 font-medium hover:text-indigo-400 transition-colors"
                       >
                         {run.name || `Run #${run.run_number}`}
@@ -88,7 +89,7 @@ export function WorkflowTable({ runs, isLoading }: WorkflowTableProps) {
                     <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
                       {run.status === 'completed' && (
                         <Link
-                          href={`/runs/${run.id}/results`}
+                          href={`${basePath}/${run.id}/results`}
                           className="p-1.5 rounded-lg hover:bg-indigo-500/20 text-zinc-500 hover:text-indigo-400 transition-colors"
                           title="View test results"
                         >
@@ -96,7 +97,7 @@ export function WorkflowTable({ runs, isLoading }: WorkflowTableProps) {
                         </Link>
                       )}
                       <Link
-                        href={`/runs/${run.id}`}
+                        href={`${basePath}/${run.id}`}
                         className="p-1.5 rounded-lg hover:bg-zinc-700 text-zinc-500 hover:text-zinc-200 transition-colors"
                         title="View details"
                       >

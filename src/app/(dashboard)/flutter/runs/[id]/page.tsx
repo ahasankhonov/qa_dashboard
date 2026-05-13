@@ -2,13 +2,14 @@
 
 import { useState, useEffect, useCallback, use } from 'react';
 import Link from 'next/link';
-import {
-  ArrowLeft, ExternalLink, FlaskConical, Clock, GitBranch, Hash, RefreshCw,
-} from 'lucide-react';
-import { StatusBadge } from '@/components/ui/StatusBadge';
+import { ArrowLeft, Cpu, RefreshCw, ExternalLink, FlaskConical } from 'lucide-react';
+import { RunMetaCard } from '@/components/runs/RunMetaCard';
+import { JobsList } from '@/components/runs/JobsList';
 import { ErrorAlert } from '@/components/ui/ErrorAlert';
-import { formatRelativeTime, formatDuration, computeDuration } from '@/utils/format';
-import type { WorkflowRun } from '@/types/github';
+import { Skeleton } from '@/components/ui/Skeleton';
+import { StatusBadge } from '@/components/ui/StatusBadge';
+import { usePollRun } from '@/hooks/usePollRun';
+import type { WorkflowRun, WorkflowJob, Artifact } from '@/types/github';
 
 interface PageProps {
   params: Promise<{ id: string }>;
@@ -19,16 +20,36 @@ export default function FlutterRunDetailPage({ params }: PageProps) {
   const runId = Number(id);
 
   const [run, setRun] = useState<WorkflowRun | null>(null);
+  const [jobs, setJobs] = useState<WorkflowJob[]>([]);
+  const [artifacts, setArtifacts] = useState<Artifact[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  const fetchRun = useCallback(async () => {
+  const shouldPoll = run ? run.status !== 'completed' : false;
+  const { run: polledRun } = usePollRun(shouldPoll ? runId : null, 5_000, '/api/flutter/runs');
+
+  useEffect(() => {
+    if (polledRun) setRun(polledRun);
+  }, [polledRun]);
+
+  const fetchAll = useCallback(async () => {
     if (isNaN(runId)) { setError('Invalid run ID'); setIsLoading(false); return; }
     setIsLoading(true);
     try {
-      const res = await fetch(`/api/flutter/runs/${runId}`);
-      if (!res.ok) throw new Error(`Failed to fetch run: ${res.statusText}`);
-      setRun(await res.json());
+      const [runRes, jobsRes, artifactsRes] = await Promise.all([
+        fetch(`/api/flutter/runs/${runId}`),
+        fetch(`/api/flutter/runs/${runId}/jobs`),
+        fetch(`/api/flutter/runs/${runId}/artifacts`),
+      ]);
+      if (!runRes.ok) throw new Error(`Failed to fetch run: ${runRes.statusText}`);
+      const [runData, jobsData, artifactsData] = await Promise.all([
+        runRes.json(),
+        jobsRes.ok ? jobsRes.json() : { jobs: [] },
+        artifactsRes.ok ? artifactsRes.json() : { artifacts: [] },
+      ]);
+      setRun(runData);
+      setJobs(jobsData.jobs || []);
+      setArtifacts(artifactsData.artifacts || []);
       setError(null);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Unknown error');
@@ -37,16 +58,11 @@ export default function FlutterRunDetailPage({ params }: PageProps) {
     }
   }, [runId]);
 
-  useEffect(() => { fetchRun(); }, [fetchRun]);
+  useEffect(() => { fetchAll(); }, [fetchAll]);
 
-  // Poll while running
-  useEffect(() => {
-    if (!run || run.status === 'completed') return;
-    const t = setInterval(fetchRun, 5_000);
-    return () => clearInterval(t);
-  }, [run, fetchRun]);
-
-  const duration = run ? computeDuration(run.run_started_at, run.updated_at) : 0;
+  const hasDiagnosticsArtifact = artifacts.some((a) =>
+    /ci.?diagnostics|test.?results?/i.test(a.name),
+  );
 
   return (
     <div>
@@ -62,80 +78,93 @@ export default function FlutterRunDetailPage({ params }: PageProps) {
         {run && (
           <>
             <span className="text-zinc-700">/</span>
-            <span className="text-sm text-zinc-400">{run.name} #{run.run_number}</span>
+            <div className="flex items-center gap-2">
+              <span className="text-sm text-zinc-300">{run.name} #{run.run_number}</span>
+              <StatusBadge status={run.status} conclusion={run.conclusion} size="sm" />
+              {run.status !== 'completed' && (
+                <span className="flex items-center gap-1 text-xs text-blue-400">
+                  <RefreshCw className="w-3 h-3 animate-spin" />
+                  Live
+                </span>
+              )}
+            </div>
           </>
         )}
       </div>
 
-      {error && <ErrorAlert message={error} onRetry={fetchRun} />}
+      {error && <div className="mb-6"><ErrorAlert message={error} onRetry={fetchAll} /></div>}
 
-      {isLoading && !run && (
-        <div className="flex items-center gap-2 text-zinc-500 text-sm">
-          <RefreshCw className="w-4 h-4 animate-spin" />
-          Loading run details…
+      {isLoading ? (
+        <div className="space-y-4">
+          <Skeleton className="h-48 w-full rounded-xl" />
+          <Skeleton className="h-32 w-full rounded-xl" />
         </div>
-      )}
+      ) : run ? (
+        <div className="space-y-5">
+          <RunMetaCard run={run} />
 
-      {run && (
-        <div className="space-y-6">
-          {/* Header card */}
-          <div className="bg-zinc-900 border border-zinc-800 rounded-xl p-6">
-            <div className="flex items-start justify-between gap-4 mb-5">
-              <div>
-                <h1 className="text-lg font-semibold text-zinc-100">{run.name}</h1>
-                <p className="text-sm text-zinc-500 mt-0.5">Run #{run.run_number}</p>
-              </div>
-              <StatusBadge status={run.status} conclusion={run.conclusion} />
-            </div>
-
-            <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 text-sm">
-              <div className="flex items-center gap-2 text-zinc-400">
-                <GitBranch className="w-4 h-4 text-zinc-600" />
-                <span className="font-mono text-zinc-300">{run.head_branch}</span>
-              </div>
-              <div className="flex items-center gap-2 text-zinc-400">
-                <Clock className="w-4 h-4 text-zinc-600" />
-                <span>{run.status === 'completed' ? formatDuration(duration) : 'Running…'}</span>
-              </div>
-              <div className="flex items-center gap-2 text-zinc-400">
-                <Hash className="w-4 h-4 text-zinc-600" />
-                <span className="font-mono text-xs">{run.head_sha.slice(0, 7)}</span>
-              </div>
-              <div className="text-zinc-500 text-xs">
-                {formatRelativeTime(run.created_at)}
-              </div>
-            </div>
-
-            <div className="flex items-center gap-3 mt-5 pt-5 border-t border-zinc-800">
-              {run.status === 'completed' && (
-                <Link
-                  href={`/flutter/runs/${runId}/results`}
-                  className="flex items-center gap-1.5 px-4 py-2 rounded-lg text-sm font-medium text-indigo-400 hover:text-indigo-300 bg-indigo-500/10 hover:bg-indigo-500/15 border border-indigo-500/20 transition-colors"
-                >
+          {/* View Test Results CTA */}
+          {run.status === 'completed' && (
+            <Link
+              href={`/flutter/runs/${runId}/results`}
+              className={`flex items-center justify-between p-4 rounded-xl border transition-all group ${
+                hasDiagnosticsArtifact
+                  ? 'bg-indigo-600/10 border-indigo-500/30 hover:bg-indigo-600/15 hover:border-indigo-500/50'
+                  : 'bg-zinc-900 border-zinc-800 hover:border-zinc-700'
+              }`}
+            >
+              <div className="flex items-center gap-3">
+                <div className={`p-2 rounded-lg ${hasDiagnosticsArtifact ? 'bg-indigo-500/20 text-indigo-400' : 'bg-zinc-800 text-zinc-500'}`}>
                   <FlaskConical className="w-4 h-4" />
-                  View Test Results
-                </Link>
-              )}
+                </div>
+                <div>
+                  <p className={`text-sm font-semibold ${hasDiagnosticsArtifact ? 'text-indigo-300' : 'text-zinc-400'}`}>
+                    View Mobile Test Results
+                  </p>
+                  <p className="text-xs text-zinc-500 mt-0.5">
+                    {hasDiagnosticsArtifact
+                      ? 'Inline test results & failure details'
+                      : 'No ci-diagnostics artifact found for this run'}
+                  </p>
+                </div>
+              </div>
+              <span className={`text-xs font-medium px-3 py-1.5 rounded-lg border transition-colors ${
+                hasDiagnosticsArtifact
+                  ? 'text-indigo-400 border-indigo-500/30 group-hover:bg-indigo-500/20'
+                  : 'text-zinc-500 border-zinc-700'
+              }`}>
+                Open Results →
+              </span>
+            </Link>
+          )}
+
+          {/* Jobs */}
+          <div>
+            <div className="flex items-center justify-between mb-4 pb-3 border-b border-zinc-800">
+              <div className="flex items-center gap-2 text-sm font-medium text-zinc-300">
+                <Cpu className="w-4 h-4 text-cyan-400" />
+                Jobs
+                {jobs.length > 0 && (
+                  <span className="bg-zinc-800 text-zinc-400 text-xs px-1.5 py-0.5 rounded-full">
+                    {jobs.length}
+                  </span>
+                )}
+              </div>
               <a
                 href={run.html_url}
                 target="_blank"
                 rel="noopener noreferrer"
-                className="flex items-center gap-1.5 px-4 py-2 rounded-lg text-sm font-medium text-zinc-400 hover:text-zinc-200 bg-zinc-800 hover:bg-zinc-700 transition-colors"
+                className="flex items-center gap-1.5 text-xs text-zinc-500 hover:text-zinc-200 transition-colors"
               >
-                <ExternalLink className="w-4 h-4" />
+                <ExternalLink className="w-3.5 h-3.5" />
                 View on GitHub
               </a>
             </div>
+            <JobsList jobs={jobs} />
           </div>
-
-          {/* Not-completed hint */}
-          {run.status !== 'completed' && (
-            <div className="flex items-center gap-2 text-sm text-blue-400 bg-blue-400/10 border border-blue-400/20 rounded-lg px-4 py-3">
-              <RefreshCw className="w-4 h-4 animate-spin" />
-              Run is in progress — polling for updates…
-            </div>
-          )}
         </div>
+      ) : (
+        <div className="text-center py-16 text-zinc-500">Run not found</div>
       )}
     </div>
   );
