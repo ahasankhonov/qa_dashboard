@@ -9,9 +9,10 @@ import { formatRelativeTime, formatDuration, formatDateTime, computeDuration } f
 interface RunCardProps {
   run: WorkflowRun;
   artifactsCount?: number;
+  basePath?: string;
 }
 
-export function RunCard({ run, artifactsCount }: RunCardProps) {
+export function RunCard({ run, artifactsCount, basePath = '/runs' }: RunCardProps) {
   const duration = computeDuration(run.run_started_at, run.updated_at);
 
   return (
@@ -20,7 +21,7 @@ export function RunCard({ run, artifactsCount }: RunCardProps) {
       <div className="flex items-start justify-between gap-3 mb-4">
         <div className="flex-1 min-w-0">
           <Link
-            href={`/runs/${run.id}`}
+            href={`${basePath}/${run.id}`}
             className="text-sm font-semibold text-zinc-100 hover:text-indigo-400 transition-colors truncate block"
           >
             {run.name || `Workflow Run #${run.run_number}`}
@@ -59,7 +60,7 @@ export function RunCard({ run, artifactsCount }: RunCardProps) {
       <div className="flex items-center gap-2 pt-3 border-t border-zinc-800">
         {run.status === 'completed' && (
           <Link
-            href={`/runs/${run.id}/results`}
+            href={`${basePath}/${run.id}/results`}
             className="flex-1 flex items-center justify-center gap-1.5 py-1.5 rounded-lg text-xs font-medium text-indigo-400 hover:text-indigo-300 hover:bg-indigo-500/10 border border-indigo-500/20 hover:border-indigo-500/40 transition-colors"
           >
             <FlaskConical className="w-3.5 h-3.5" />
@@ -67,7 +68,7 @@ export function RunCard({ run, artifactsCount }: RunCardProps) {
           </Link>
         )}
         <Link
-          href={`/runs/${run.id}`}
+          href={`${basePath}/${run.id}`}
           className="flex-1 flex items-center justify-center gap-1.5 py-1.5 rounded-lg text-xs font-medium text-zinc-400 hover:text-zinc-200 hover:bg-zinc-800 transition-colors"
         >
           Details

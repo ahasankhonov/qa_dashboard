@@ -4,6 +4,10 @@
  * All requests are authenticated with GITHUB_TOKEN from env vars.
  * This file must NEVER be imported from client components.
  * Use API routes (/api/*) to proxy these calls to the browser.
+ *
+ * Supports two repo contexts:
+ *   - Default (Playwright): GITHUB_OWNER / GITHUB_REPO / GITHUB_TOKEN
+ *   - Flutter (Mobile):     GITHUB_FLUTTER_OWNER / GITHUB_FLUTTER_REPO / GITHUB_TOKEN
  */
 
 import type {
@@ -17,41 +21,10 @@ import type {
 
 const GITHUB_API = 'https://api.github.com';
 
-function getHeaders(): HeadersInit {
-  const token = process.env.GITHUB_TOKEN;
-  if (!token) {
-    throw new Error('GITHUB_TOKEN environment variable is not set');
-  }
-  return {
-    Authorization: `Bearer ${token}`,
-    Accept: 'application/vnd.github+json',
-    'X-GitHub-Api-Version': '2022-11-28',
-    'Content-Type': 'application/json',
-  };
-}
+// ─── Shared error handler ─────────────────────────────────────────────────────
 
-function getConfig(): { owner: string; repo: string } {
-  const owner = process.env.GITHUB_OWNER;
-  const repo = process.env.GITHUB_REPO;
-  if (!owner || !repo) {
-    throw new Error('GITHUB_OWNER or GITHUB_REPO environment variables are not set');
-  }
-  return { owner, repo };
-}
-
-async function githubFetch<T>(path: string, options?: RequestInit): Promise<T> {
-  const url = `${GITHUB_API}${path}`;
-  const res = await fetch(url, {
-    ...options,
-    headers: {
-      ...getHeaders(),
-      ...(options?.headers || {}),
-    },
-    cache: 'no-store',
-  });
-
+async function handleResponse<T>(res: Response): Promise<T> {
   if (!res.ok) {
-    // Surface meaningful errors for common failure modes
     if (res.status === 401) {
       throw new Error('GitHub token is invalid or expired. Check your GITHUB_TOKEN environment variable.');
     }
@@ -75,20 +48,73 @@ async function githubFetch<T>(path: string, options?: RequestInit): Promise<T> {
     throw new Error(`GitHub API error ${res.status}: ${body}`);
   }
 
-  // 204 No Content (e.g. workflow_dispatch returns this)
   if (res.status === 204) return undefined as T;
-
   return res.json() as Promise<T>;
 }
 
-// ─── Workflows ───────────────────────────────────────────────────────────────
+// ─── Generic fetch (token + path) ────────────────────────────────────────────
+
+async function apiRequest<T>(token: string, path: string, options?: RequestInit): Promise<T> {
+  const url = `${GITHUB_API}${path}`;
+  const res = await fetch(url, {
+    ...options,
+    headers: {
+      Authorization: `Bearer ${token}`,
+      Accept: 'application/vnd.github+json',
+      'X-GitHub-Api-Version': '2022-11-28',
+      'Content-Type': 'application/json',
+      ...(options?.headers || {}),
+    },
+    cache: 'no-store',
+  });
+  return handleResponse<T>(res);
+}
+
+// ─── Playwright repo config ───────────────────────────────────────────────────
+
+function getToken(): string {
+  const token = process.env.GITHUB_TOKEN;
+  if (!token) throw new Error('GITHUB_TOKEN environment variable is not set');
+  return token;
+}
+
+function getConfig(): { owner: string; repo: string } {
+  const owner = process.env.GITHUB_OWNER;
+  const repo = process.env.GITHUB_REPO;
+  if (!owner || !repo) throw new Error('GITHUB_OWNER or GITHUB_REPO environment variables are not set');
+  return { owner, repo };
+}
+
+function githubFetch<T>(path: string, options?: RequestInit): Promise<T> {
+  return apiRequest<T>(getToken(), path, options);
+}
+
+// ─── Flutter repo config ──────────────────────────────────────────────────────
+
+function getFlutterToken(): string {
+  // Use a dedicated Flutter token if provided, otherwise fall back to the main token
+  return process.env.GITHUB_FLUTTER_TOKEN || process.env.GITHUB_TOKEN || '';
+}
+
+function getFlutterConfig(): { owner: string; repo: string } {
+  const owner = process.env.GITHUB_FLUTTER_OWNER;
+  const repo = process.env.GITHUB_FLUTTER_REPO;
+  if (!owner || !repo) throw new Error('GITHUB_FLUTTER_OWNER or GITHUB_FLUTTER_REPO environment variables are not set');
+  return { owner, repo };
+}
+
+function flutterFetch<T>(path: string, options?: RequestInit): Promise<T> {
+  return apiRequest<T>(getFlutterToken(), path, options);
+}
+
+// ─── Playwright: Workflows ────────────────────────────────────────────────────
 
 export async function listWorkflows(): Promise<WorkflowsResponse> {
   const { owner, repo } = getConfig();
   return githubFetch<WorkflowsResponse>(`/repos/${owner}/${repo}/actions/workflows`);
 }
 
-// ─── Workflow Runs ────────────────────────────────────────────────────────────
+// ─── Playwright: Workflow Runs ────────────────────────────────────────────────
 
 export async function listWorkflowRuns(
   workflowId?: string | number,
@@ -99,10 +125,7 @@ export async function listWorkflowRuns(
   const base = workflowId
     ? `/repos/${owner}/${repo}/actions/workflows/${workflowId}/runs`
     : `/repos/${owner}/${repo}/actions/runs`;
-
-  return githubFetch<WorkflowRunsResponse>(
-    `${base}?per_page=${perPage}&page=${page}`,
-  );
+  return githubFetch<WorkflowRunsResponse>(`${base}?per_page=${perPage}&page=${page}`);
 }
 
 export async function getWorkflowRun(runId: number): Promise<WorkflowRun> {
@@ -110,12 +133,8 @@ export async function getWorkflowRun(runId: number): Promise<WorkflowRun> {
   return githubFetch<WorkflowRun>(`/repos/${owner}/${repo}/actions/runs/${runId}`);
 }
 
-// ─── Trigger ──────────────────────────────────────────────────────────────────
+// ─── Playwright: Trigger ──────────────────────────────────────────────────────
 
-/**
- * Triggers a workflow_dispatch event on a given workflow.
- * Returns undefined (GitHub sends 204 No Content on success).
- */
 export async function triggerWorkflow(
   workflowId: string,
   payload: TriggerWorkflowPayload,
@@ -123,28 +142,102 @@ export async function triggerWorkflow(
   const { owner, repo } = getConfig();
   await githubFetch<undefined>(
     `/repos/${owner}/${repo}/actions/workflows/${workflowId}/dispatches`,
-    {
-      method: 'POST',
-      body: JSON.stringify(payload),
-    },
+    { method: 'POST', body: JSON.stringify(payload) },
   );
 }
 
-// ─── Jobs ─────────────────────────────────────────────────────────────────────
+// ─── Playwright: Jobs ─────────────────────────────────────────────────────────
 
 export async function listJobsForRun(runId: number): Promise<WorkflowJobsResponse> {
   const { owner, repo } = getConfig();
-  return githubFetch<WorkflowJobsResponse>(
-    `/repos/${owner}/${repo}/actions/runs/${runId}/jobs`,
-  );
+  return githubFetch<WorkflowJobsResponse>(`/repos/${owner}/${repo}/actions/runs/${runId}/jobs`);
 }
 
-// ─── Artifacts ───────────────────────────────────────────────────────────────
+// ─── Playwright: Artifacts ────────────────────────────────────────────────────
 
 export async function listArtifactsForRun(runId: number): Promise<ArtifactsResponse> {
   const { owner, repo } = getConfig();
-  return githubFetch<ArtifactsResponse>(
-    `/repos/${owner}/${repo}/actions/runs/${runId}/artifacts`,
+  return githubFetch<ArtifactsResponse>(`/repos/${owner}/${repo}/actions/runs/${runId}/artifacts`);
+}
+
+// ─── Flutter: Workflows list ─────────────────────────────────────────────────
+
+export async function listFlutterWorkflows(): Promise<WorkflowsResponse> {
+  const { owner, repo } = getFlutterConfig();
+  return flutterFetch<WorkflowsResponse>(`/repos/${owner}/${repo}/actions/workflows`);
+}
+
+// Cached numeric workflow ID — resolved once per process lifetime
+let _flutterWorkflowNumericId: number | null = null;
+
+async function resolveFlutterWorkflowNumericId(): Promise<number | null> {
+  if (_flutterWorkflowNumericId) return _flutterWorkflowNumericId;
+  try {
+    const { workflows } = await listFlutterWorkflows();
+    const fileId = process.env.GITHUB_FLUTTER_WORKFLOW_ID ?? '';
+    const match = workflows.find(
+      (w) =>
+        w.path.endsWith(`/${fileId}`) ||
+        w.path.endsWith(`/${fileId.replace('.yaml', '.yml')}`) ||
+        w.path.endsWith(`/${fileId.replace('.yml', '.yaml')}`) ||
+        w.name.toLowerCase().includes('flutter'),
+    );
+    if (match) _flutterWorkflowNumericId = match.id;
+    return _flutterWorkflowNumericId;
+  } catch {
+    return null;
+  }
+}
+
+// ─── Flutter: Workflow Runs ───────────────────────────────────────────────────
+
+export async function listFlutterWorkflowRuns(
+  perPage = 30,
+  page = 1,
+): Promise<WorkflowRunsResponse> {
+  const { owner, repo } = getFlutterConfig();
+
+  // Prefer the resolved numeric ID — immune to .yml vs .yaml mismatch
+  const numericId = await resolveFlutterWorkflowNumericId();
+  if (numericId) {
+    return flutterFetch<WorkflowRunsResponse>(
+      `/repos/${owner}/${repo}/actions/workflows/${numericId}/runs?per_page=${perPage}&page=${page}`,
+    );
+  }
+
+  // Fallback: list all runs for the repo (Flutter repo has only one workflow)
+  return flutterFetch<WorkflowRunsResponse>(
+    `/repos/${owner}/${repo}/actions/runs?per_page=${perPage}&page=${page}`,
   );
 }
 
+export async function getFlutterWorkflowRun(runId: number): Promise<WorkflowRun> {
+  const { owner, repo } = getFlutterConfig();
+  return flutterFetch<WorkflowRun>(`/repos/${owner}/${repo}/actions/runs/${runId}`);
+}
+
+// ─── Flutter: Trigger ─────────────────────────────────────────────────────────
+
+export async function triggerFlutterWorkflow(payload: TriggerWorkflowPayload): Promise<void> {
+  const { owner, repo } = getFlutterConfig();
+  const workflowId = process.env.GITHUB_FLUTTER_WORKFLOW_ID;
+  if (!workflowId) throw new Error('GITHUB_FLUTTER_WORKFLOW_ID is not set');
+  await flutterFetch<undefined>(
+    `/repos/${owner}/${repo}/actions/workflows/${workflowId}/dispatches`,
+    { method: 'POST', body: JSON.stringify(payload) },
+  );
+}
+
+// ─── Flutter: Jobs ────────────────────────────────────────────────────────────
+
+export async function listFlutterJobsForRun(runId: number): Promise<WorkflowJobsResponse> {
+  const { owner, repo } = getFlutterConfig();
+  return flutterFetch<WorkflowJobsResponse>(`/repos/${owner}/${repo}/actions/runs/${runId}/jobs`);
+}
+
+// ─── Flutter: Artifacts ───────────────────────────────────────────────────────
+
+export async function listFlutterArtifactsForRun(runId: number): Promise<ArtifactsResponse> {
+  const { owner, repo } = getFlutterConfig();
+  return flutterFetch<ArtifactsResponse>(`/repos/${owner}/${repo}/actions/runs/${runId}/artifacts`);
+}

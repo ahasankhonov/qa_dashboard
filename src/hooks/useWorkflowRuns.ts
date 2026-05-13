@@ -7,6 +7,7 @@ interface UseWorkflowRunsOptions {
   workflowId?: string;
   pollingInterval?: number; // ms, 0 = no polling
   perPage?: number;
+  apiEndpoint?: string; // default '/api/runs'
 }
 
 interface UseWorkflowRunsResult {
@@ -21,6 +22,7 @@ export function useWorkflowRuns({
   workflowId,
   pollingInterval = 0,
   perPage = 30,
+  apiEndpoint = '/api/runs',
 }: UseWorkflowRunsOptions = {}): UseWorkflowRunsResult {
   const [runs, setRuns] = useState<WorkflowRun[]>([]);
   const [totalCount, setTotalCount] = useState(0);
@@ -38,7 +40,7 @@ export function useWorkflowRuns({
     try {
       const params = new URLSearchParams({ per_page: String(perPage) });
       if (workflowId) params.set('workflow_id', workflowId);
-      const res = await fetch(`/api/runs?${params.toString()}`, {
+      const res = await fetch(`${apiEndpoint}?${params.toString()}`, {
         signal: controller.signal,
       });
       if (!res.ok) throw new Error(`Failed to fetch runs: ${res.statusText}`);
@@ -52,7 +54,7 @@ export function useWorkflowRuns({
     } finally {
       if (!controller.signal.aborted) setIsLoading(false);
     }
-  }, [workflowId, perPage]);
+  }, [workflowId, perPage, apiEndpoint]);
 
   // Initial fetch + re-fetch when dependencies change
   useEffect(() => {

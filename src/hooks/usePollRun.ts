@@ -8,7 +8,7 @@ import type { WorkflowRun } from '@/types/github';
  * Automatically stops when status === 'completed'.
  * Uses AbortController to prevent state updates after unmount.
  */
-export function usePollRun(runId: number | null, intervalMs = 5000) {
+export function usePollRun(runId: number | null, intervalMs = 5000, apiBase = '/api/runs') {
   const [run, setRun] = useState<WorkflowRun | null>(null);
   const [isPolling, setIsPolling] = useState(false);
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -37,7 +37,7 @@ export function usePollRun(runId: number | null, intervalMs = 5000) {
       const controller = new AbortController();
       abortRef.current = controller;
       try {
-        const res = await fetch(`/api/runs/${runId}`, { signal: controller.signal });
+        const res = await fetch(`${apiBase}/${runId}`, { signal: controller.signal });
         if (!res.ok) return;
         const data: WorkflowRun = await res.json();
         setRun(data);
@@ -59,7 +59,7 @@ export function usePollRun(runId: number | null, intervalMs = 5000) {
       }
       abortRef.current?.abort();
     };
-  }, [runId, intervalMs, stopPolling]);
+  }, [runId, intervalMs, apiBase, stopPolling]);
 
   return { run, isPolling };
 }

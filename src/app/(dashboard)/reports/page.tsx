@@ -1,17 +1,19 @@
 'use client';
 
 import { useState, useEffect, useCallback } from 'react';
-import { FileText, Filter, Search, SortAsc, SortDesc } from 'lucide-react';
+import { FileText, Filter, Search, SortAsc, SortDesc, Globe, Smartphone } from 'lucide-react';
 import { RunCard } from '@/components/reports/RunCard';
 import { RunCardSkeleton } from '@/components/ui/Skeleton';
 import { ErrorAlert } from '@/components/ui/ErrorAlert';
 import { EmptyState } from '@/components/ui/EmptyState';
 import { Header } from '@/components/layout/Header';
+import { cn } from '@/lib/cn';
 import type { WorkflowRun } from '@/types/github';
 import type { WorkflowRunConclusion } from '@/types/github';
 
 type SortOrder = 'desc' | 'asc';
 type FilterConclusion = WorkflowRunConclusion | 'all' | 'running';
+type ReportTab = 'web' | 'mobile';
 
 const FILTER_OPTIONS: { label: string; value: FilterConclusion }[] = [
   { label: 'All', value: 'all' },
@@ -22,31 +24,57 @@ const FILTER_OPTIONS: { label: string; value: FilterConclusion }[] = [
 ];
 
 export default function ReportsPage() {
-  const [runs, setRuns] = useState<WorkflowRun[]>([]);
-  const [isLoading, setIsLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+  const [activeTab, setActiveTab] = useState<ReportTab>('web');
+  const [webRuns, setWebRuns] = useState<WorkflowRun[]>([]);
+  const [mobileRuns, setMobileRuns] = useState<WorkflowRun[]>([]);
+  const [isWebLoading, setIsWebLoading] = useState(true);
+  const [isMobileLoading, setIsMobileLoading] = useState(true);
+  const [webError, setWebError] = useState<string | null>(null);
+  const [mobileError, setMobileError] = useState<string | null>(null);
   const [filter, setFilter] = useState<FilterConclusion>('all');
   const [search, setSearch] = useState('');
   const [sortOrder, setSortOrder] = useState<SortOrder>('desc');
 
-  const fetchRuns = useCallback(async () => {
-    setIsLoading(true);
+  const fetchWebRuns = useCallback(async () => {
+    setIsWebLoading(true);
     try {
       const res = await fetch('/api/runs?per_page=50');
       if (!res.ok) throw new Error(`Failed to fetch: ${res.statusText}`);
       const data = await res.json();
-      setRuns(data.workflow_runs);
-      setError(null);
+      setWebRuns(data.workflow_runs);
+      setWebError(null);
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Unknown error');
+      setWebError(err instanceof Error ? err.message : 'Unknown error');
     } finally {
-      setIsLoading(false);
+      setIsWebLoading(false);
+    }
+  }, []);
+
+  const fetchMobileRuns = useCallback(async () => {
+    setIsMobileLoading(true);
+    try {
+      const res = await fetch('/api/flutter/runs?per_page=50');
+      if (!res.ok) throw new Error(`Failed to fetch: ${res.statusText}`);
+      const data = await res.json();
+      setMobileRuns(data.workflow_runs);
+      setMobileError(null);
+    } catch (err) {
+      setMobileError(err instanceof Error ? err.message : 'Unknown error');
+    } finally {
+      setIsMobileLoading(false);
     }
   }, []);
 
   useEffect(() => {
-    fetchRuns();
-  }, [fetchRuns]);
+    fetchWebRuns();
+    fetchMobileRuns();
+  }, [fetchWebRuns, fetchMobileRuns]);
+
+  const runs = activeTab === 'web' ? webRuns : mobileRuns;
+  const isLoading = activeTab === 'web' ? isWebLoading : isMobileLoading;
+  const error = activeTab === 'web' ? webError : mobileError;
+  const onRetry = activeTab === 'web' ? fetchWebRuns : fetchMobileRuns;
+  const basePath = activeTab === 'web' ? '/runs' : '/flutter/runs';
 
   const filtered = runs
     .filter((run) => {
@@ -74,9 +102,33 @@ export default function ReportsPage() {
       <Header
         title="Reports"
         subtitle="Browse all test run reports and artifacts"
-        onRefresh={fetchRuns}
-        isRefreshing={isLoading}
+        onRefresh={() => { fetchWebRuns(); fetchMobileRuns(); }}
+        isRefreshing={isWebLoading || isMobileLoading}
       />
+
+      {/* Tabs */}
+      <div className="flex items-center gap-1 bg-zinc-900 border border-zinc-800 rounded-lg p-1 mb-6 w-fit">
+        <button
+          onClick={() => setActiveTab('web')}
+          className={cn(
+            'flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium transition-colors',
+            activeTab === 'web' ? 'bg-zinc-700 text-zinc-100' : 'text-zinc-500 hover:text-zinc-300',
+          )}
+        >
+          <Globe className="w-3.5 h-3.5" />
+          Web Automation
+        </button>
+        <button
+          onClick={() => setActiveTab('mobile')}
+          className={cn(
+            'flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium transition-colors',
+            activeTab === 'mobile' ? 'bg-zinc-700 text-zinc-100' : 'text-zinc-500 hover:text-zinc-300',
+          )}
+        >
+          <Smartphone className="w-3.5 h-3.5" />
+          Mobile Automation
+        </button>
+      </div>
 
       {/* Filters */}
       <div className="flex flex-col sm:flex-row gap-3 mb-6">
@@ -126,7 +178,7 @@ export default function ReportsPage() {
 
       {error && (
         <div className="mb-6">
-          <ErrorAlert message={error} onRetry={fetchRuns} />
+          <ErrorAlert message={error} onRetry={onRetry} />
         </div>
       )}
 
@@ -157,7 +209,7 @@ export default function ReportsPage() {
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
           {filtered.map((run) => (
-            <RunCard key={run.id} run={run} />
+            <RunCard key={run.id} run={run} basePath={basePath} />
           ))}
         </div>
       )}
