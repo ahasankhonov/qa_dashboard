@@ -43,9 +43,9 @@ function computeStats(runs: WorkflowRun[]): DashboardStats {
 function computeActiveRoles(
   runs: WorkflowRun[],
   roleMap: RoleMap,
-  justTriggered: WorkflowKey | null,
+  justTriggered: Set<WorkflowKey>,
 ): Set<WorkflowKey> {
-  const active = new Set<WorkflowKey>();
+  const active = new Set<WorkflowKey>(justTriggered);
   const activeStatuses = new Set(['in_progress', 'queued', 'waiting', 'requested', 'pending']);
   for (const run of runs) {
     if (!activeStatuses.has(run.status)) continue;
@@ -53,7 +53,6 @@ function computeActiveRoles(
       if (workflowId !== null && run.workflow_id === workflowId) active.add(role);
     }
   }
-  if (justTriggered) active.add(justTriggered);
   return active;
 }
 
@@ -61,7 +60,7 @@ export default function DashboardPage() {
   // ── Web (Playwright) state ─────────────────────────────────────────────────
   const [pollingRunId, setPollingRunId] = useState<number | null>(null);
   const [roleMap, setRoleMap] = useState<RoleMap>({ admin: null, manager: null, technician: null });
-  const [justTriggered, setJustTriggered] = useState<WorkflowKey | null>(null);
+  const [justTriggered, setJustTriggered] = useState<Set<WorkflowKey>>(new Set());
 
   const { runs, isLoading, error, refresh } = useWorkflowRuns({
     perPage: 20,
@@ -97,7 +96,7 @@ export default function DashboardPage() {
   useEffect(() => {
     if (polledRun?.status === 'completed') {
       setPollingRunId(null);
-      setJustTriggered(null);
+      setJustTriggered(new Set());
       refresh();
     }
   }, [polledRun?.status, refresh]);
@@ -127,7 +126,7 @@ export default function DashboardPage() {
         if (runId) setFlutterPollingRunId(runId);
         setTimeout(flutterRefresh, 3000);
       } else {
-        setJustTriggered(role);
+        setJustTriggered((prev) => new Set([...prev, role]));
         if (runId) setPollingRunId(runId);
         setTimeout(refresh, 3000);
       }
