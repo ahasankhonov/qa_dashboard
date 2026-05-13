@@ -21,6 +21,9 @@ import { formatRelativeTime } from '@/utils/format';
 import type { DashboardStats } from '@/types/dashboard';
 import type { WorkflowRun } from '@/types/github';
 
+type WorkflowKey = 'admin' | 'manager' | 'technician';
+type RoleMap = Record<WorkflowKey, number | null>;
+
 function computeStats(runs: WorkflowRun[]): DashboardStats {
   const completed = runs.filter((r) => r.status === 'completed');
   const passed = completed.filter((r) => r.conclusion === 'success').length;
@@ -45,8 +48,34 @@ function computeStats(runs: WorkflowRun[]): DashboardStats {
   };
 }
 
+function computeActiveRoles(
+  runs: WorkflowRun[],
+  roleMap: RoleMap,
+  justTriggered: WorkflowKey | null,
+): Set<WorkflowKey> {
+  const active = new Set<WorkflowKey>();
+
+  const activeStatuses = new Set(['in_progress', 'queued', 'waiting', 'requested', 'pending']);
+
+  for (const run of runs) {
+    if (!activeStatuses.has(run.status)) continue;
+    for (const [role, workflowId] of Object.entries(roleMap) as [WorkflowKey, number | null][]) {
+      if (workflowId !== null && run.workflow_id === workflowId) {
+        active.add(role);
+      }
+    }
+  }
+
+  // Immediately reflect a just-triggered role before the next poll catches up
+  if (justTriggered) active.add(justTriggered);
+
+  return active;
+}
+
 export default function DashboardPage() {
   const [pollingRunId, setPollingRunId] = useState<number | null>(null);
+  const [roleMap, setRoleMap] = useState<RoleMap>({ admin: null, manager: null, technician: null });
+  const [justTriggered, setJustTriggered] = useState<WorkflowKey | null>(null);
 
   const { runs, isLoading, error, refresh } = useWorkflowRuns({
     perPage: 20,
@@ -55,20 +84,28 @@ export default function DashboardPage() {
 
   const { run: polledRun, isPolling } = usePollRun(pollingRunId, 5_000);
 
+  // Fetch role → workflow ID mapping once on mount (non-critical, falls back gracefully)
+  useEffect(() => {
+    fetch('/api/workflows/role-map')
+      .then((r) => (r.ok ? r.json() : Promise.reject()))
+      .then((data) => setRoleMap(data as RoleMap))
+      .catch(() => {/* role-map unavailable — active-run highlighting disabled */});
+  }, []);
+
   // Clear pollingRunId once the triggered run finishes
   useEffect(() => {
     if (polledRun?.status === 'completed') {
       setPollingRunId(null);
+      setJustTriggered(null);
       refresh();
     }
   }, [polledRun?.status, refresh]);
 
-  const hasActiveRun = runs.some(
-    (r) => r.status === 'in_progress' || r.status === 'queued' || r.status === 'waiting',
-  );
+  const activeRoles = computeActiveRoles(runs, roleMap, justTriggered);
 
   const handleTriggered = useCallback(
-    (runId?: number) => {
+    (role: WorkflowKey, runId?: number) => {
+      setJustTriggered(role);
       if (runId) setPollingRunId(runId);
       setTimeout(refresh, 3000);
     },
@@ -142,7 +179,7 @@ export default function DashboardPage() {
             </span>
           )}
         </div>
-        <TriggerPanel onTriggered={handleTriggered} hasActiveRun={hasActiveRun} />
+        <TriggerPanel onTriggered={handleTriggered} activeRoles={activeRoles} />
       </div>
 
       {/* Workflow History */}

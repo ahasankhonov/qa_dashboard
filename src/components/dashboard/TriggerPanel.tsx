@@ -5,15 +5,17 @@ import { Play, Shield, Briefcase, Wrench, CheckCircle2, XCircle, Clock } from 'l
 import { toast } from 'sonner';
 import { cn } from '@/lib/cn';
 
+type WorkflowKey = 'admin' | 'manager' | 'technician';
+
 interface TriggerButtonProps {
   label: string;
   description: string;
   icon: React.ReactNode;
   color: string;
-  workflowKey: 'admin' | 'manager' | 'technician';
+  workflowKey: WorkflowKey;
   comingSoon?: boolean;
-  hasActiveRun?: boolean;
-  onTriggered?: (runId?: number) => void;
+  isActiveRun?: boolean;
+  onTriggered?: (role: WorkflowKey, runId?: number) => void;
 }
 
 function TriggerButton({
@@ -23,13 +25,13 @@ function TriggerButton({
   color,
   workflowKey,
   comingSoon = false,
-  hasActiveRun = false,
+  isActiveRun = false,
   onTriggered,
 }: TriggerButtonProps) {
   const [state, setState] = useState<'idle' | 'loading' | 'success' | 'error'>('idle');
 
   const handleTrigger = async () => {
-    if (comingSoon || hasActiveRun) return;
+    if (comingSoon || isActiveRun) return;
     setState('loading');
     try {
       const res = await fetch('/api/trigger', {
@@ -41,7 +43,7 @@ function TriggerButton({
       if (!res.ok) throw new Error(data.error || 'Failed to trigger workflow');
       setState('success');
       toast.success(`${label} workflow triggered successfully`);
-      onTriggered?.(data.runId);
+      onTriggered?.(workflowKey, data.runId);
       setTimeout(() => setState('idle'), 3000);
     } catch (err) {
       setState('error');
@@ -50,7 +52,7 @@ function TriggerButton({
     }
   };
 
-  // ── Coming Soon variant ──────────────────────────────────────────────────
+  // ── Coming Soon variant ────────────────────────────────────────────────────
   if (comingSoon) {
     return (
       <div
@@ -74,8 +76,8 @@ function TriggerButton({
     );
   }
 
-  // ── Active variant ───────────────────────────────────────────────────────
-  const isDisabled = state === 'loading' || hasActiveRun;
+  // ── Active variant ─────────────────────────────────────────────────────────
+  const isDisabled = state === 'loading' || isActiveRun;
 
   return (
     <button
@@ -88,7 +90,7 @@ function TriggerButton({
         isDisabled && 'opacity-60 cursor-not-allowed',
         state === 'success' && 'border-emerald-500/40 bg-emerald-500/5',
         state === 'error' && 'border-red-500/40 bg-red-500/5',
-        hasActiveRun && state === 'idle' && 'border-blue-500/20',
+        isActiveRun && state === 'idle' && 'border-blue-500/20',
       )}
     >
       <div className="flex items-center justify-between">
@@ -112,7 +114,7 @@ function TriggerButton({
         <div
           className={cn(
             'flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium border transition-all',
-            state === 'loading' || (hasActiveRun && state === 'idle')
+            state === 'loading' || (isActiveRun && state === 'idle')
               ? 'text-blue-400 bg-blue-400/10 border-blue-400/20'
               : state === 'success'
               ? 'text-emerald-400 bg-emerald-400/10 border-emerald-400/20'
@@ -126,7 +128,7 @@ function TriggerButton({
               <span className="w-1.5 h-1.5 rounded-full bg-blue-400 animate-pulse" />
               Triggering…
             </>
-          ) : hasActiveRun && state === 'idle' ? (
+          ) : isActiveRun && state === 'idle' ? (
             <>
               <span className="w-1.5 h-1.5 rounded-full bg-blue-400 animate-pulse" />
               Test running
@@ -153,18 +155,25 @@ function TriggerButton({
 }
 
 interface TriggerPanelProps {
-  onTriggered?: (runId?: number) => void;
-  hasActiveRun?: boolean;
+  onTriggered?: (role: WorkflowKey, runId?: number) => void;
+  activeRoles?: Set<WorkflowKey>;
 }
 
-export function TriggerPanel({ onTriggered, hasActiveRun = false }: TriggerPanelProps) {
-  const suites = [
+export function TriggerPanel({ onTriggered, activeRoles = new Set() }: TriggerPanelProps) {
+  const suites: Array<{
+    label: string;
+    description: string;
+    icon: React.ReactNode;
+    color: string;
+    workflowKey: WorkflowKey;
+    comingSoon: boolean;
+  }> = [
     {
       label: 'Admin Tests',
       description: 'Run full admin role test suite',
       icon: <Shield className="w-5 h-5" />,
       color: 'bg-purple-500/15 text-purple-400',
-      workflowKey: 'admin' as const,
+      workflowKey: 'admin',
       comingSoon: false,
     },
     {
@@ -172,15 +181,15 @@ export function TriggerPanel({ onTriggered, hasActiveRun = false }: TriggerPanel
       description: 'Run manager role test suite',
       icon: <Briefcase className="w-5 h-5" />,
       color: 'bg-blue-500/15 text-blue-400',
-      workflowKey: 'manager' as const,
-      comingSoon: true,
+      workflowKey: 'manager',
+      comingSoon: false,
     },
     {
       label: 'Technician Tests',
       description: 'Run technician role test suite',
       icon: <Wrench className="w-5 h-5" />,
       color: 'bg-orange-500/15 text-orange-400',
-      workflowKey: 'technician' as const,
+      workflowKey: 'technician',
       comingSoon: true,
     },
   ];
@@ -188,7 +197,12 @@ export function TriggerPanel({ onTriggered, hasActiveRun = false }: TriggerPanel
   return (
     <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
       {suites.map((suite) => (
-        <TriggerButton key={suite.workflowKey} {...suite} hasActiveRun={hasActiveRun} onTriggered={onTriggered} />
+        <TriggerButton
+          key={suite.workflowKey}
+          {...suite}
+          isActiveRun={activeRoles.has(suite.workflowKey)}
+          onTriggered={onTriggered}
+        />
       ))}
     </div>
   );
