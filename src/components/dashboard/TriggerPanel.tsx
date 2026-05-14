@@ -165,7 +165,7 @@ export function TriggerPanel({ onTriggered, activeRoles = new Set() }: TriggerPa
       icon: <Wrench className="w-5 h-5" />,
       color: 'bg-orange-500/15 text-orange-400',
       workflowKey: 'technician' as WorkflowKey,
-      comingSoon: true,
+      comingSoon: false,
     },
   ];
 

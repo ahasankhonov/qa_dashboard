@@ -35,35 +35,37 @@ export default function ReportsPage() {
   const [search, setSearch] = useState('');
   const [sortOrder, setSortOrder] = useState<SortOrder>('desc');
 
-  const fetchWebRuns = useCallback(async () => {
-    setIsWebLoading(true);
+  const makeFetcher = (
+    endpoint: string,
+    setRuns: (r: WorkflowRun[]) => void,
+    setLoading: (v: boolean) => void,
+    setError: (e: string | null) => void,
+  ) => async () => {
+    setLoading(true);
     try {
-      const res = await fetch('/api/runs?per_page=50');
+      const res = await fetch(endpoint);
       if (!res.ok) throw new Error(`Failed to fetch: ${res.statusText}`);
       const data = await res.json();
-      setWebRuns(data.workflow_runs);
-      setWebError(null);
+      setRuns(data.workflow_runs);
+      setError(null);
     } catch (err) {
-      setWebError(err instanceof Error ? err.message : 'Unknown error');
+      setError(err instanceof Error ? err.message : 'Unknown error');
     } finally {
-      setIsWebLoading(false);
+      setLoading(false);
     }
-  }, []);
+  };
 
-  const fetchMobileRuns = useCallback(async () => {
-    setIsMobileLoading(true);
-    try {
-      const res = await fetch('/api/flutter/runs?per_page=50');
-      if (!res.ok) throw new Error(`Failed to fetch: ${res.statusText}`);
-      const data = await res.json();
-      setMobileRuns(data.workflow_runs);
-      setMobileError(null);
-    } catch (err) {
-      setMobileError(err instanceof Error ? err.message : 'Unknown error');
-    } finally {
-      setIsMobileLoading(false);
-    }
-  }, []);
+  const fetchWebRuns = useCallback(
+    makeFetcher('/api/runs?per_page=50', setWebRuns, setIsWebLoading, setWebError),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [],
+  );
+
+  const fetchMobileRuns = useCallback(
+    makeFetcher('/api/flutter/runs?per_page=50', setMobileRuns, setIsMobileLoading, setMobileError),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [],
+  );
 
   useEffect(() => {
     fetchWebRuns();

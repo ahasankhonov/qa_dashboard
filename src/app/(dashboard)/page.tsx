@@ -40,15 +40,28 @@ function computeStats(runs: WorkflowRun[]): DashboardStats {
   };
 }
 
+const ACTIVE_STATUSES = new Set(['in_progress', 'queued', 'waiting', 'requested', 'pending']);
+
+function passRateAccent(rate: number): string {
+  if (rate === 100) return 'text-emerald-400';
+  if (rate >= 80) return 'text-yellow-400';
+  return 'text-red-400';
+}
+
+function failRateAccent(rate: number): string {
+  if (rate === 0) return 'text-emerald-400';
+  if (rate < 20) return 'text-yellow-400';
+  return 'text-red-400';
+}
+
 function computeActiveRoles(
   runs: WorkflowRun[],
   roleMap: RoleMap,
   justTriggered: Set<WorkflowKey>,
 ): Set<WorkflowKey> {
   const active = new Set<WorkflowKey>(justTriggered);
-  const activeStatuses = new Set(['in_progress', 'queued', 'waiting', 'requested', 'pending']);
   for (const run of runs) {
-    if (!activeStatuses.has(run.status)) continue;
+    if (!ACTIVE_STATUSES.has(run.status)) continue;
     for (const [role, workflowId] of Object.entries(roleMap) as ['admin' | 'manager' | 'technician', number | null][]) {
       if (workflowId !== null && run.workflow_id === workflowId) active.add(role);
     }
@@ -156,11 +169,11 @@ export default function DashboardPage() {
               icon={<BarChart3 className="w-4 h-4" />} accent="text-indigo-400" />
             <StatCard title="Pass Rate" value={`${stats.successRate}%`} subtitle={`${stats.passedRuns} passed`}
               icon={<TrendingUp className="w-4 h-4" />}
-              accent={stats.successRate === 100 ? 'text-emerald-400' : stats.successRate >= 80 ? 'text-yellow-400' : 'text-red-400'} />
+              accent={passRateAccent(stats.successRate)} />
             <StatCard title="Fail Rate" value={`${stats.failRate}%`}
               subtitle={stats.failedRuns > 0 ? `${stats.failedRuns} failed` : 'No failures'}
               icon={<TrendingDown className="w-4 h-4" />}
-              accent={stats.failRate === 0 ? 'text-emerald-400' : stats.failRate < 20 ? 'text-yellow-400' : 'text-red-400'} />
+              accent={failRateAccent(stats.failRate)} />
             <StatCard title="Last Run"
               value={stats.lastExecutionTime ? formatRelativeTime(stats.lastExecutionTime) : '—'}
               subtitle={stats.latestStatus ? `Status: ${stats.latestStatus}` : 'No runs yet'}

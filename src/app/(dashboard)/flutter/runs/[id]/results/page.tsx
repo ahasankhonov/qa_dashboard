@@ -105,11 +105,11 @@ export default function FlutterResultsPage({ params }: PageProps) {
 
   useEffect(() => { fetchResults(); }, [fetchResults]);
 
-  // Auto-refresh when in progress
+  // Auto-refresh when in progress — setTimeout avoids overlapping fetches
   useEffect(() => {
     if (state !== 'in_progress') return;
-    const t = setInterval(fetchResults, 8_000);
-    return () => clearInterval(t);
+    const t = setTimeout(fetchResults, 8_000);
+    return () => clearTimeout(t);
   }, [state, fetchResults]);
 
   const filtered = results?.tests.filter((t) => {

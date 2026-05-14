@@ -91,8 +91,7 @@ function githubFetch<T>(path: string, options?: RequestInit): Promise<T> {
 
 // ─── Flutter repo config ──────────────────────────────────────────────────────
 
-function getFlutterToken(): string {
-  // Use a dedicated Flutter token if provided, otherwise fall back to the main token
+export function getFlutterToken(): string {
   return process.env.GITHUB_FLUTTER_TOKEN || process.env.GITHUB_TOKEN || '';
 }
 

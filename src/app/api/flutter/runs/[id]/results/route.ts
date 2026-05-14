@@ -1,21 +1,7 @@
-/**
- * GET /api/flutter/runs/[id]/results
- *
- * Downloads the ci-diagnostics artifact from a Flutter CI run,
- * extracts test-results.json, and returns parsed test data.
- *
- * Flutter test --machine produces NDJSON (one JSON object per line).
- * We also handle plain JSON arrays as a fallback.
- */
-
 import { NextRequest, NextResponse } from 'next/server';
-import { listFlutterArtifactsForRun, getFlutterWorkflowRun } from '@/services/github';
+import { listFlutterArtifactsForRun, getFlutterWorkflowRun, getFlutterToken } from '@/services/github';
 import { unzipSync, strFromU8 } from 'fflate';
 import type { Artifact } from '@/types/github';
-
-function getFlutterToken(): string {
-  return process.env.GITHUB_FLUTTER_TOKEN || process.env.GITHUB_TOKEN || '';
-}
 
 async function downloadZip(archiveDownloadUrl: string): Promise<Record<string, Uint8Array>> {
   const token = getFlutterToken();
@@ -184,13 +170,14 @@ export async function GET(
       return NextResponse.json({ error: 'Invalid run ID' }, { status: 400 });
     }
 
-    // Check run status first
-    const run = await getFlutterWorkflowRun(runId);
+    // Fetch run status and artifacts in parallel
+    const [run, { artifacts }] = await Promise.all([
+      getFlutterWorkflowRun(runId),
+      listFlutterArtifactsForRun(runId),
+    ]);
     if (run.status !== 'completed') {
       return NextResponse.json({ status: 'in_progress' }, { status: 202 });
     }
-
-    const { artifacts } = await listFlutterArtifactsForRun(runId);
     const artifact = pickDiagnosticsArtifact(artifacts);
 
     if (!artifact) {

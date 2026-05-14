@@ -8,13 +8,9 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server';
-import { listFlutterWorkflows, listFlutterWorkflowRuns } from '@/services/github';
+import { listFlutterWorkflows, listFlutterWorkflowRuns, getFlutterToken } from '@/services/github';
 
 const GITHUB_API = 'https://api.github.com';
-
-function getFlutterToken(): string {
-  return process.env.GITHUB_FLUTTER_TOKEN || process.env.GITHUB_TOKEN || '';
-}
 
 async function resolveFlutterWorkflowId(): Promise<number | string> {
   const configuredId = process.env.GITHUB_FLUTTER_WORKFLOW_ID ?? 'flutter_ci.yaml';
